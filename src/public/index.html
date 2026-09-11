@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mpv subseek</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="toolbar">
+      <div>
+        <p class="eyebrow">mpv companion</p>
+        <h1>Subtitle timeline</h1>
+      </div>
+      <div class="toolbar-actions">
+        <label for="track-select">Subtitle track</label>
+        <select id="track-select" aria-label="Browser subtitle track"></select>
+        <button id="resume-follow" class="secondary" type="button" hidden>Return to current subtitle</button>
+      </div>
+    </header>
+
+    <section id="notice" class="notice" role="status">Connecting to mpv…</section>
+    <section id="timeline" class="timeline" aria-label="Subtitle cues" tabindex="0"></section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{
+  "name": "mpv-subseek",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Windows companion app that shows mpv subtitles in a synchronized browser timeline.",
+  "type": "module",
+  "bin": {
+    "mpv-subseek": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
+    "dev": "npm run build && node --enable-source-maps dist/cli.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/cli.js",
+    "package:win": "npm run build && node scripts/package-windows.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "pkg": {
+    "assets": [
+      "dist/public/**/*"
+    ],
+    "outputPath": "release"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
+    "@yao-pkg/pkg": "^6.22.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
