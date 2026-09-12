@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
+import { getPkgInvocation } from "./package-command.mjs";
 
 const execFileAsync = promisify(execFile);
 const requiredHelpers = ["ffmpeg.exe", "ffprobe.exe"];
@@ -14,9 +15,10 @@ for (const helper of requiredHelpers) {
 }
 
 await mkdir("release/ffmpeg", { recursive: true });
+const pkg = getPkgInvocation(process.platform, process.execPath);
 await execFileAsync(
-  process.platform === "win32" ? "node_modules\\.bin\\pkg.cmd" : "node_modules/.bin/pkg",
-  ["dist/cli.js", "--target", "node22-win-x64", "--output", "release/mpv-subseek.exe", "--config", "package.json"],
+  pkg.executable,
+  [...pkg.leadingArguments, "dist/cli.js", "--target", "node22-win-x64", "--output", "release/mpv-subseek.exe", "--config", "package.json"],
   { windowsHide: true },
 );
 await Promise.all(requiredHelpers.map((helper) => copyFile(`vendor/ffmpeg/${helper}`, `release/ffmpeg/${helper}`)));
