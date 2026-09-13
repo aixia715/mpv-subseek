@@ -2,11 +2,13 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type VerifyClientCallbackSync, type WebSocket } from "ws";
+import { subtitleFormatForPath } from "./subtitle-catalog.js";
 import { createTimeline, type SubtitleTimeline } from "./subtitles.js";
 import type { PlaybackState, SubtitleCue, SubtitleTrack } from "./types.js";
+import { TemporarySubtitleFiles, type ExternalSubtitleFiles } from "./uploaded-subtitle-files.js";
 
 export interface MvpCatalog {
   load(track: SubtitleTrack, signal?: AbortSignal): Promise<SubtitleCue[]>;
@@ -15,6 +17,7 @@ export interface MvpCatalog {
 export interface MvpMpv extends EventEmitter {
   readonly playbackState: Readonly<PlaybackState>;
   seek(seconds: number): void;
+  addSubtitle(path: string): void;
 }
 
 export interface CompanionServerOptions {
@@ -22,25 +25,37 @@ export interface CompanionServerOptions {
   catalog: MvpCatalog;
   mpv: MvpMpv;
   publicDir?: string;
+  subtitleFiles?: ExternalSubtitleFiles;
 }
+
+const MAX_EXTERNAL_SUBTITLE_BYTES = 5 * 1024 * 1024;
 
 export class CompanionServer {
   private readonly http: Server;
   private readonly sockets: WebSocketServer;
   private readonly publicDir: string;
+  private readonly tracks: SubtitleTrack[];
+  private readonly subtitleFiles: ExternalSubtitleFiles;
   private readonly sessionToken = randomBytes(32).toString("base64url");
   private selectedTrackId: string | null = null;
   private timeline: SubtitleTimeline = createTimeline([]);
   private loadGeneration = 0;
   private loadAbort: AbortController | undefined;
+  private uploadedTrackSequence = 0;
   private closed = false;
 
   constructor(private readonly options: CompanionServerOptions) {
     this.publicDir = options.publicDir ?? join(dirname(fileURLToPath(import.meta.url)), "public");
+    this.tracks = [...options.tracks];
+    this.subtitleFiles = options.subtitleFiles ?? new TemporarySubtitleFiles();
     this.http = createServer((request, response) => void this.handleHttp(request.url ?? "/", response));
     const verifyClient: VerifyClientCallbackSync = ({ origin, req }) =>
       this.authorizeWebSocket(origin, req.headers.host, req.url);
-    this.sockets = new WebSocketServer({ server: this.http, verifyClient });
+    this.sockets = new WebSocketServer({
+      server: this.http,
+      verifyClient,
+      maxPayload: MAX_EXTERNAL_SUBTITLE_BYTES * 6 + 64 * 1024,
+    });
     this.sockets.on("connection", (socket) => {
       socket.on("message", (data) => void this.handleMessage(socket, data.toString()));
       socket.send(JSON.stringify(this.snapshot()));
@@ -50,7 +65,7 @@ export class CompanionServer {
 
   async listen(port = 0): Promise<{ port: number; token: string }> {
     if (this.closed) throw new Error("Companion server is closed");
-    const firstTrack = this.options.tracks[0];
+    const firstTrack = this.tracks[0];
     try {
       if (firstTrack) await this.selectTrack(firstTrack.id);
     } catch (error) {
@@ -76,9 +91,11 @@ export class CompanionServer {
     this.loadAbort?.abort(new Error("Companion server is closed"));
     this.options.mpv.off("state", this.handlePlaybackState);
     for (const socket of this.sockets.clients) socket.close();
-    if (!this.http.listening) return;
-    await new Promise<void>((resolve) => this.sockets.close(() => resolve()));
-    await new Promise<void>((resolve, reject) => this.http.close((error) => error ? reject(error) : resolve()));
+    if (this.http.listening) {
+      await new Promise<void>((resolve) => this.sockets.close(() => resolve()));
+      await new Promise<void>((resolve, reject) => this.http.close((error) => error ? reject(error) : resolve()));
+    }
+    await this.subtitleFiles.close();
   }
 
   private readonly handlePlaybackState = (): void => {
@@ -92,7 +109,7 @@ export class CompanionServer {
   private snapshot(): object {
     return {
       type: "snapshot",
-      tracks: this.options.tracks.map(({ id, label, language, format }) => ({ id, label, language, format })),
+      tracks: this.tracks.map(({ id, label, language, format }) => ({ id, label, language, format })),
       selectedTrackId: this.selectedTrackId,
       cues: this.timeline.cues,
       playback: this.options.mpv.playbackState,
@@ -120,6 +137,12 @@ export class CompanionServer {
         this.options.mpv.seek(target);
       } else if (message.type === "select-track" && typeof message.trackId === "string") {
         await this.selectTrack(message.trackId);
+      } else if (
+        message.type === "load-external-subtitle"
+        && typeof message.name === "string"
+        && typeof message.content === "string"
+      ) {
+        await this.loadExternalSubtitle(message.name, message.content);
       }
     } catch (error) {
       socket.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : String(error) }));
@@ -127,23 +150,53 @@ export class CompanionServer {
   }
 
   private async selectTrack(trackId: string): Promise<void> {
-    const track = this.options.tracks.find((candidate) => candidate.id === trackId);
+    const track = this.tracks.find((candidate) => candidate.id === trackId);
     if (!track) throw new Error(`Unknown subtitle track: ${trackId}`);
+    const cues = await this.loadTrackCues(track);
+    if (!cues) return;
+    this.activateTrack(track, cues);
+  }
+
+  private async loadExternalSubtitle(name: string, content: string): Promise<void> {
+    const format = subtitleFormatForPath(name);
+    if (!format) throw new Error("Choose an SRT, ASS, SSA, or WebVTT subtitle file");
+    if (Buffer.byteLength(content, "utf8") > MAX_EXTERNAL_SUBTITLE_BYTES) {
+      throw new Error("Subtitle files must be 5 MB or smaller");
+    }
+
+    const path = await this.subtitleFiles.save(name, content);
+    if (this.closed) return;
+    const track: SubtitleTrack = {
+      id: `uploaded-${++this.uploadedTrackSequence}`,
+      label: basename(win32.basename(name)),
+      format,
+      source: { kind: "external", path },
+    };
+    const cues = await this.loadTrackCues(track);
+    if (!cues) return;
+    this.options.mpv.addSubtitle(path);
+    this.tracks.push(track);
+    this.activateTrack(track, cues);
+  }
+
+  private async loadTrackCues(track: SubtitleTrack): Promise<SubtitleCue[] | undefined> {
     const generation = ++this.loadGeneration;
     this.loadAbort?.abort(new Error("Subtitle track selection was superseded"));
     const abort = new AbortController();
     this.loadAbort = abort;
-    let cues: SubtitleCue[];
     try {
-      cues = await this.options.catalog.load(track, abort.signal);
+      const cues = await this.options.catalog.load(track, abort.signal);
+      return generation === this.loadGeneration && !this.closed ? cues : undefined;
     } catch (error) {
-      if (this.closed || generation !== this.loadGeneration) return;
+      if (this.closed || generation !== this.loadGeneration) return undefined;
       throw error;
     } finally {
       if (this.loadAbort === abort) this.loadAbort = undefined;
     }
-    if (generation !== this.loadGeneration || this.closed) return;
-    this.selectedTrackId = trackId;
+  }
+
+  private activateTrack(track: SubtitleTrack, cues: SubtitleCue[]): void {
+    this.selectedTrackId = track.id;
     this.timeline = createTimeline(cues);
     this.broadcast(this.snapshot());
   }
@@ -191,4 +244,6 @@ interface ClientMessage {
   type?: string;
   cueId?: string;
   trackId?: string;
+  name?: string;
+  content?: string;
 }

@@ -33,6 +33,10 @@ const EXTENSION_FORMATS: Readonly<Record<string, SubtitleFormat>> = {
   ".vtt": "webvtt",
 };
 
+export function subtitleFormatForPath(path: string): SubtitleFormat | undefined {
+  return EXTENSION_FORMATS[extname(path).toLowerCase()];
+}
+
 export class SubtitleCatalog {
   constructor(private readonly tools: SubtitleTools) {}
 
@@ -56,7 +60,7 @@ export class SubtitleCatalog {
     });
 
     const external: SubtitleTrack[] = sidecars.flatMap((sidecar, index) => {
-      const format = EXTENSION_FORMATS[extname(sidecar).toLowerCase()];
+      const format = subtitleFormatForPath(sidecar);
       if (!format) return [];
       const label = process.platform === "win32" ? basename(sidecar) : win32.basename(sidecar);
       return [{

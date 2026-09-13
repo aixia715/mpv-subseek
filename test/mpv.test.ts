@@ -33,4 +33,15 @@ describe("mpv control", () => {
       command: ["seek", 8.25, "absolute+exact"],
     });
   });
+
+  it("loads an external subtitle into mpv and selects it", () => {
+    const transport = new FakeTransport();
+    const controller = new MpvController(transport);
+
+    controller.addSubtitle("C:\\Temp\\lesson.fr.srt");
+
+    expect(JSON.parse(transport.writes.at(-1) ?? "")).toEqual({
+      command: ["sub-add", "C:\\Temp\\lesson.fr.srt", "select"],
+    });
+  });
 });

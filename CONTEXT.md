@@ -22,7 +22,7 @@ mpv-subseek is a Windows-first companion for mpv. It presents a complete text-su
 - Support external and embedded SRT, ASS/SSA, and WebVTT text subtitles.
 - Do not OCR PGS, VobSub, or other image subtitle formats.
 - Preserve cue line breaks but render plain text without ASS layout/effects.
-- Browser track selection does not change mpv's `sid`.
+- Browser track selection does not change mpv's `sid`; loading a new external subtitle from the browser adds and initially selects that file in mpv.
 - Apply mpv's `sub-delay` to highlighting and click-to-seek timing.
 - Highlight all overlapping active cues and follow the first.
 - Browser only controls seeking; playback controls stay in mpv.

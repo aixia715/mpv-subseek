@@ -7,6 +7,7 @@ import type { PlaybackState, SubtitleTrack } from "../src/types.js";
 class FakeMpv extends EventEmitter implements MvpMpv {
   playbackState: PlaybackState = { timePosition: 2.5, subtitleDelay: 0.5, paused: false, eof: false };
   seek = vi.fn();
+  addSubtitle = vi.fn();
 }
 
 const track: SubtitleTrack = {
@@ -46,6 +47,59 @@ describe("companion server", () => {
     await vi.waitFor(() => expect(mpv.seek).toHaveBeenCalledWith(2.5));
     socket.close();
     await server.close();
+  });
+
+  it("loads an uploaded subtitle in the timeline and mpv", async () => {
+    const mpv = new FakeMpv();
+    const uploadedTrack: SubtitleTrack = {
+      id: "uploaded-1",
+      label: "lesson.fr.srt",
+      format: "srt",
+      source: { kind: "external", path: "C:\\Temp\\lesson.fr.srt" },
+    };
+    const uploadCatalog: MvpCatalog = {
+      async load(selectedTrack) {
+        return selectedTrack.id === uploadedTrack.id
+          ? [{ id: "cue-1", start: 5, end: 7, text: "Bonjour" }]
+          : catalog.load(selectedTrack);
+      },
+    };
+    const subtitleFiles = {
+      save: vi.fn().mockResolvedValue(uploadedTrack.source.path),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const server = new CompanionServer({ tracks: [track], catalog: uploadCatalog, mpv, subtitleFiles });
+    const address = await server.listen(0);
+    const socket = new WebSocket(`ws://127.0.0.1:${address.port}/?token=${address.token}`, {
+      origin: `http://127.0.0.1:${address.port}`,
+    });
+    await nextMessage(socket);
+
+    socket.send(JSON.stringify({
+      type: "load-external-subtitle",
+      name: "lesson.fr.srt",
+      content: "1\n00:00:05,000 --> 00:00:07,000\nBonjour\n",
+    }));
+    const snapshot = await nextMessage(socket);
+
+    expect(subtitleFiles.save).toHaveBeenCalledWith(
+      "lesson.fr.srt",
+      "1\n00:00:05,000 --> 00:00:07,000\nBonjour\n",
+    );
+    expect(mpv.addSubtitle).toHaveBeenCalledWith("C:\\Temp\\lesson.fr.srt");
+    expect(snapshot).toMatchObject({
+      type: "snapshot",
+      selectedTrackId: "uploaded-1",
+      cues: [{ text: "Bonjour" }],
+      tracks: [
+        { id: "external-1", label: "movie.en.srt" },
+        { id: "uploaded-1", label: "lesson.fr.srt" },
+      ],
+    });
+
+    socket.close();
+    await server.close();
+    expect(subtitleFiles.close).toHaveBeenCalledOnce();
   });
 
   it("cancels initial track loading and does not bind when closed", async () => {

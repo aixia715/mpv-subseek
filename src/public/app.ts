@@ -16,6 +16,7 @@ type ServerMessage = SnapshotMessage | PlaybackMessage | ErrorMessage;
 const timelineElement = requiredElement<HTMLElement>("timeline");
 const trackSelect = requiredElement<HTMLSelectElement>("track-select");
 const resumeButton = requiredElement<HTMLButtonElement>("resume-follow");
+const subtitleFileInput = requiredElement<HTMLInputElement>("subtitle-file");
 const notice = requiredElement<HTMLElement>("notice");
 const follow = new FollowState();
 let activeCueIds: string[] = [];
@@ -49,6 +50,8 @@ trackSelect.addEventListener("change", () => {
   socket.send(JSON.stringify({ type: "select-track", trackId: trackSelect.value }));
 });
 
+subtitleFileInput.addEventListener("change", () => void loadExternalSubtitle());
+
 timelineElement.addEventListener("click", (event) => {
   const cue = (event.target as Element).closest<HTMLButtonElement>("[data-cue-id]");
   if (cue) socket.send(JSON.stringify({ type: "seek", cueId: cue.dataset.cueId }));
@@ -65,6 +68,29 @@ resumeButton.addEventListener("click", () => {
   resumeButton.hidden = true;
   scrollToCue(follow.resume(activeCueIds));
 });
+
+async function loadExternalSubtitle(): Promise<void> {
+  const file = subtitleFileInput.files?.[0];
+  if (!file) return;
+
+  subtitleFileInput.disabled = true;
+  try {
+    if (file.size > 5 * 1024 * 1024) throw new Error("Subtitle files must be 5 MB or smaller.");
+    if (!/[.](?:srt|ass|ssa|vtt)$/i.test(file.name)) {
+      throw new Error("Choose an SRT, ASS, SSA, or WebVTT subtitle file.");
+    }
+    if (socket.readyState !== WebSocket.OPEN) throw new Error("The companion is not connected.");
+
+    setNotice(`Loading ${file.name}…`, false);
+    const content = await file.text();
+    socket.send(JSON.stringify({ type: "load-external-subtitle", name: file.name, content }));
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    subtitleFileInput.value = "";
+    subtitleFileInput.disabled = false;
+  }
+}
 
 function renderTrackSelector(tracks: BrowserTrack[], selectedTrackId: string | null): void {
   trackSelect.replaceChildren(...tracks.map((track) => {

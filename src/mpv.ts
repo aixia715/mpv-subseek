@@ -38,6 +38,11 @@ export class MpvController extends EventEmitter {
     this.send(["seek", seconds, "absolute+exact"]);
   }
 
+  addSubtitle(path: string): void {
+    if (!path) throw new Error("An external subtitle path is required");
+    this.send(["sub-add", path, "select"]);
+  }
+
   close(): void {
     this.transport.destroy();
   }

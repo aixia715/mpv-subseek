@@ -13,7 +13,7 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body { overflow: hidden; }
-button, select { font: inherit; }
+button, select, .file-button { font: inherit; }
 
 .shell {
   display: grid;
@@ -45,7 +45,7 @@ button, select { font: inherit; }
 h1 { margin: 0; font-size: clamp(1.5rem, 3vw, 2.2rem); }
 .toolbar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: end; }
 label { color: var(--muted); font-size: 0.85rem; }
-select, button.secondary {
+select, button.secondary, .file-button {
   min-height: 38px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -53,8 +53,9 @@ select, button.secondary {
   color: inherit;
   padding: 7px 11px;
 }
-button.secondary { cursor: pointer; border-color: #3f716a; }
-button.secondary:hover { background: var(--accent-soft); }
+button.secondary, .file-button { cursor: pointer; border-color: #3f716a; }
+button.secondary:hover, .file-button:hover { background: var(--accent-soft); }
+.file-button { color: inherit; font-size: 0.85rem; display: inline-flex; align-items: center; }
 
 .notice { min-height: 42px; padding: 12px 2px; color: var(--muted); font-size: 0.9rem; }
 .notice.error { color: #ff9e9e; }

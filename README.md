@@ -5,6 +5,7 @@ A Windows-first mpv companion that displays a complete subtitle track in the bro
 ## MVP features
 
 - External and embedded SRT, ASS/SSA, WebVTT, and compatible text tracks
+- Load an additional SRT, ASS/SSA, or WebVTT file from the browser into both the timeline and mpv
 - One clickable card per cue, preserving internal line breaks
 - All overlapping active cues highlighted
 - Automatic follow mode; scrolling suspends it until **Return to current subtitle** is clicked
@@ -28,7 +29,7 @@ Then use one of these workflows:
 - Choose `mpv-subseek.exe` through Windows **Open with**.
 - Run `mpv-subseek.exe "C:\Videos\lesson.mkv"`.
 
-The companion launches mpv, opens the default browser, and exits when mpv closes. External sidecar subtitles are discovered when their names are the media stem followed by an optional suffix, for example `lesson.srt`, `lesson.en.srt`, or `lesson.zh.ass`.
+The companion launches mpv, opens the default browser, and exits when mpv closes. External sidecar subtitles are discovered when their names are the media stem followed by an optional suffix, for example `lesson.srt`, `lesson.en.srt`, or `lesson.zh.ass`. To use any other subtitle file, click **Load subtitle** in the browser; files up to 5 MB are added to the browser timeline and selected in mpv.
 
 Optional flags:
 
