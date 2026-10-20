@@ -2,7 +2,7 @@
 
 ## Purpose
 
-mpv-subseek is a Windows-first companion for mpv. It presents a complete text-subtitle track as a synchronized, clickable timeline in the user's default browser.
+mpv-subseek is a Linux and Windows companion for mpv. It presents a complete text-subtitle track as a synchronized, clickable timeline in the user's default browser.
 
 ## Domain language
 
@@ -16,7 +16,7 @@ mpv-subseek is a Windows-first companion for mpv. It presents a complete text-su
 
 ## MVP decisions
 
-- Target Windows and one mpv session.
+- Target Linux and Windows, with one mpv session.
 - The portable companion uses an existing mpv installation rather than bundling mpv.
 - Open media through an executable argument (drag-and-drop, Open With, or terminal).
 - Support external and embedded SRT, ASS/SSA, and WebVTT text subtitles.
@@ -28,6 +28,7 @@ mpv-subseek is a Windows-first companion for mpv. It presents a complete text-su
 - Browser only controls seeking; playback controls stay in mpv.
 - Manual scrolling suspends follow mode; an explicit action resumes it.
 - Companion exits when the launched mpv process exits.
+- Use Windows named pipes or a Unix-domain socket in a private temporary directory; clean up after child closure, including startup failures.
 
 ## Confirmed test seams
 

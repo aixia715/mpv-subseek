@@ -3,7 +3,7 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { SubtitleCatalog } from "./subtitle-catalog.js";
 import { FfmpegSubtitleTools } from "./ffmpeg-tools.js";
-import { MpvController } from "./mpv.js";
+import { MpvController, type MpvTransport } from "./mpv.js";
 import { connectMpvPipe, launchMpv, openBrowser } from "./mpv-session.js";
 import { CompanionServer } from "./server.js";
 
@@ -30,44 +30,52 @@ async function main(): Promise<void> {
     startupAbort.abort(error);
     throw error;
   });
+  let transport: MpvTransport | undefined;
+  let server: CompanionServer | undefined;
+  let stopping: Promise<void> | undefined;
+  const stop = (): Promise<void> => {
+    stopping ??= (async () => {
+      startupAbort.abort(new Error("Companion is stopping"));
+      transport?.destroy();
+      try {
+        await Promise.all([server?.close(), session.stop()]);
+      } finally {
+        process.off("SIGINT", onSignal);
+        process.off("SIGTERM", onSignal);
+      }
+    })();
+    return stopping;
+  };
+  const onSignal = () => {
+    void stop().catch(reportError);
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+  void session.exit.then(() => stop()).catch(reportError);
 
   try {
     const tools = new FfmpegSubtitleTools();
     const catalog = new SubtitleCatalog(tools);
-    const [transport, tracks] = await Promise.race([
+    const [, tracks] = await Promise.race([
       Promise.all([
-        connectMpvPipe(session.pipeName, 10_000, startupAbort.signal),
+        connectMpvPipe(session.pipeName, 10_000, startupAbort.signal).then((connected) => {
+          transport = connected;
+          return connected;
+        }),
         catalog.discover(mediaPath, startupAbort.signal),
       ]),
       launchFailure,
       earlyExit,
     ]);
-    const mpv = new MpvController(transport);
-    const server = new CompanionServer({ tracks, catalog, mpv });
-    let stopping = false;
-    const stop = async () => {
-      if (stopping) return;
-      stopping = true;
-      mpv.close();
-      await server.close().catch(() => undefined);
-    };
-    void session.exit.then(() => stop());
+    const mpv = new MpvController(transport!);
+    server = new CompanionServer({ tracks, catalog, mpv });
 
     const address = await Promise.race([server.listen(arguments_.port), earlyExit]);
     const url = `http://127.0.0.1:${address.port}/?token=${encodeURIComponent(address.token)}`;
     console.log(`mpv-subseek: ${url}`);
     openBrowser(url);
-
-    process.once("SIGINT", () => {
-      session.process.kill?.();
-      void stop();
-    });
-    process.once("SIGTERM", () => {
-      session.process.kill?.();
-      void stop();
-    });
   } catch (error) {
-    session.process.kill?.();
+    await stop();
     throw error;
   }
 }
@@ -99,10 +107,12 @@ function parsePort(value: string | undefined): number {
 }
 
 function printUsage(): void {
-  console.error("Usage: mpv-subseek [--mpv C:\\path\\to\\mpv.exe] [--port 8765] <media-file>");
+  console.error("Usage: mpv-subseek [--mpv <executable>] [--port 8765] <media-file>");
 }
 
-main().catch((error) => {
+function reportError(error: unknown): void {
   console.error(`mpv-subseek: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
-});
+}
+
+main().catch(reportError);

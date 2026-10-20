@@ -2,7 +2,7 @@
   "name": "mpv-subseek",
   "version": "0.1.0",
   "private": true,
-  "description": "A Windows companion app that shows mpv subtitles in a synchronized browser timeline.",
+  "description": "A Linux and Windows companion app that shows mpv subtitles in a synchronized browser timeline.",
   "type": "module",
   "bin": {
     "mpv-subseek": "dist/cli.js"

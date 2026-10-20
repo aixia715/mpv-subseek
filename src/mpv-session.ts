@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
 import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { MpvTransport } from "./mpv.js";
 
 export interface LaunchedProcess extends EventEmitter {
@@ -28,6 +31,7 @@ export interface MpvSession {
   pipeName: string;
   process: LaunchedProcess;
   exit: Promise<MpvExit>;
+  stop(): Promise<void>;
 }
 
 const nodeLauncher: ProcessLauncher = {
@@ -38,17 +42,58 @@ const nodeLauncher: ProcessLauncher = {
 
 export function launchMpv(mediaPath: string, options: LaunchMpvOptions = {}): MpvSession {
   if (!mediaPath) throw new Error("A media path is required");
-  const pipeName = options.pipeName ?? `\\\\.\\pipe\\mpv-subseek-${randomUUID()}`;
-  const mpvPath = options.mpvPath ?? process.env.MPV_PATH ?? "mpv.exe";
-  const processHandle = (options.launcher ?? nodeLauncher).spawn(mpvPath, [
-    `--input-ipc-server=${pipeName}`,
-    "--force-window=yes",
-    mediaPath,
-  ]);
+  const socketDirectory = !options.pipeName && process.platform !== "win32"
+    ? mkdtempSync(join(tmpdir(), "mpv-subseek-"))
+    : undefined;
+  const pipeName = options.pipeName ?? (socketDirectory
+    ? join(socketDirectory, "ipc.sock")
+    : `\\\\.\\pipe\\mpv-subseek-${randomUUID()}`);
+  const cleanup = () => {
+    if (socketDirectory) rmSync(socketDirectory, { recursive: true, force: true });
+  };
+  const mpvPath = options.mpvPath ?? process.env.MPV_PATH
+    ?? (process.platform === "win32" ? "mpv.exe" : "mpv");
+  let processHandle: LaunchedProcess;
+  try {
+    processHandle = (options.launcher ?? nodeLauncher).spawn(mpvPath, [
+      `--input-ipc-server=${pipeName}`,
+      "--force-window=yes",
+      mediaPath,
+    ]);
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+  let closed = false;
+  let stopRequested = false;
+  const close = new Promise<void>((resolve, reject) => {
+    processHandle.once("close", () => {
+      closed = true;
+      try {
+        cleanup();
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+  // Cleanup can finish before the caller requests shutdown.
+  void close.catch(() => undefined);
   const exit = new Promise<MpvExit>((resolve) => {
     processHandle.once("exit", (code: number | null, signal: NodeJS.Signals | null) => resolve({ code, signal }));
   });
-  return { pipeName, process: processHandle, exit };
+  return {
+    pipeName,
+    process: processHandle,
+    exit,
+    async stop() {
+      if (!closed && !stopRequested) {
+        stopRequested = true;
+        processHandle.kill?.();
+      }
+      await close;
+    },
+  };
 }
 
 export async function connectMpvPipe(

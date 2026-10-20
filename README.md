@@ -1,6 +1,6 @@
 # mpv-subseek
 
-A Windows-first mpv companion that displays a complete subtitle track in the browser. It highlights the currently active cue, follows playback automatically, and seeks mpv when a cue is clicked.
+A companion for mpv on Linux and Windows that displays a complete subtitle track in the browser. It highlights the currently active cue, follows playback automatically, and seeks mpv when a cue is clicked.
 
 ## MVP features
 
@@ -14,6 +14,24 @@ A Windows-first mpv companion that displays a complete subtitle track in the bro
 - Local-only HTTP/WebSocket server on `127.0.0.1`, protected by a per-session token and same-origin WebSocket checks
 
 Image subtitles such as PGS and VobSub are not supported because they require OCR. ASS positioning, fonts, animation, and styling are removed in the browser timeline.
+
+## Use on Linux
+
+Install Node.js 22 or later, mpv, FFmpeg (including FFprobe), and `xdg-open` (usually provided by `xdg-utils`). Use a graphical desktop session with a default browser configured.
+
+From the project directory:
+
+```bash
+npm ci
+npm run build
+npm start -- /path/to/video.mkv
+```
+
+The companion finds `mpv`, `ffmpeg`, and `ffprobe` on `PATH`, launches mpv, and opens the browser through `xdg-open`. To override mpv, use `--mpv /path/to/mpv` or set `MPV_PATH`; the command-line flag takes precedence. If the browser does not open, visit the local URL printed in the terminal.
+
+Linux IPC uses a Unix-domain socket in a private temporary directory. Closing mpv, sending SIGINT/SIGTERM to the companion, or a failed startup removes session resources. SIGKILL or a system crash cannot run cleanup.
+
+Linux currently runs from source; standalone Linux packages and desktop **Open with** integration are not provided. Windows portable packaging remains available below.
 
 ## Use on Windows
 
@@ -34,7 +52,7 @@ The companion launches mpv, opens the default browser, and exits when mpv closes
 Optional flags:
 
 ```text
---mpv C:\path\to\mpv.exe   Override mpv location
+--mpv <executable>          Override mpv location (before MPV_PATH or PATH)
 --port 8765                 Use a fixed browser-server port (default: automatic)
 ```
 
@@ -77,7 +95,7 @@ The preparation script downloads FFmpeg Essentials from gyan.dev. FFmpeg is sepa
 ## Architecture
 
 ```text
-mpv ── JSON IPC / Windows named pipe ── companion
+mpv ── JSON IPC / named pipe (Windows) or Unix socket (Linux) ── companion
                                             ├── FFprobe/FFmpeg subtitle adapter
                                             ├── local HTTP server
                                             └── WebSocket ── browser timeline
